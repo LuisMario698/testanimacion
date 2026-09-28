@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SiMAR en puntos</title>
+<style>
+  :root{--bg:#0B2236;--fg:#C7D3DD}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0B2236;--fg:#C7D3DD}}
+  :root[data-theme="dark"]{--bg:#0B2236;--fg:#C7D3DD}
+  html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+  p{position:fixed;left:16px;right:16px;bottom:5vh;margin:0;text-align:center;color:var(--fg);
+    font:500 clamp(.85rem,2.4vw,1.05rem) system-ui,sans-serif;opacity:.75;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<p>Pasa el cursor para dispersar el cardumen · toca o haz clic para que se vuelva a formar</p>
+<script>
+const c = document.getElementById('c'), ctx = c.getContext('2d');
+const COLORS = [[27, 95, 201], [32, 178, 196], [127, 224, 214]]; // marea → golfo → espuma
+const TEXT = 'SiMAR';
+let W, H, P = [], F = [], mouse = { x: -1e4, y: -1e4 };
+
+const mix = f => {
+  const s = f * 2, i = Math.min(1, s | 0), t = s - i, a = COLORS[i], b = COLORS[i + 1];
+  return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * t))})`;
+};
+
+// Dibuja el texto y la ola del logo en un canvas oculto y convierte sus píxeles en puntos
+function build() {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  c.width = W * dpr; c.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const o = document.createElement('canvas').getContext('2d');
+  o.canvas.width = W; o.canvas.height = H;
+  let size = Math.min(H * 0.32, 260);
+  o.font = `800 ${size}px system-ui, sans-serif`;
+  size *= Math.min(1, W * 0.8 / o.measureText(TEXT).width);
+  o.font = `800 ${size}px system-ui, sans-serif`;
+  const tw = o.measureText(TEXT).width, x0 = (W - tw) / 2, y0 = H * 0.46;
+  o.textBaseline = 'alphabetic';
+  o.fillText(TEXT, x0, y0);
+  // Ola del logo bajo la palabra
+  const wy = y0 + size * 0.2, amp = size * 0.05, len = size * 0.24;
+  o.lineWidth = Math.max(3, size * 0.035); o.lineCap = 'round';
+  o.beginPath();
+  for (let x = 0; x <= tw * 0.95; x += 2) o.lineTo(x0 + x, wy - Math.sin(x / len * Math.PI) * amp);
+  o.stroke();
+
+  const d = o.getImageData(0, 0, W, H).data, g = Math.max(4, Math.round(size / 38)), old = P;
+  P = [];
+  for (let y = 0; y < H; y += g) for (let x = 0; x < W; x += g) {
+    if (d[(y * W + x) * 4 + 3] < 128) continue;
+    const q = old[P.length];
+    P.push({
+      hx: x, hy: y, wave: y > y0 + size * 0.05, col: mix((x - x0) / tw), r: g * 0.36, ph: Math.random() * 6.28,
+      x: q ? q.x : -60 - Math.random() * W * 0.6, y: q ? q.y : y + (Math.random() - 0.5) * H * 0.5,
+      vx: q ? q.vx : 6 + Math.random() * 6, vy: 0, delay: q ? 0 : Math.random() * 50,
+    });
+  }
+  // Plancton: puntos sueltos que derivan despacio al fondo
+  F = Array.from({ length: Math.round(W * H / 14000) }, () => ({ x: Math.random() * W, y: Math.random() * H, s: 0.15 + Math.random() * 0.4, r: 0.6 + Math.random() * 1.2 }));
+}
+
+function scatter() {
+  for (const p of P) { const a = Math.random() * 6.28, v = 8 + Math.random() * 14; p.vx += Math.cos(a) * v; p.vy += Math.sin(a) * v; }
+}
+
+function frame(t) {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#8CC3D1';
+  for (const f of F) {
+    f.x += f.s; f.y += Math.sin(t * 0.0006 + f.x * 0.01) * 0.15;
+    if (f.x > W + 5) { f.x = -5; f.y = Math.random() * H; }
+    ctx.globalAlpha = 0.25; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 6.28); ctx.fill();
+  }
+
+  for (const p of P) {
+    if (p.delay > 0) { p.delay--; continue; }
+    // Destino: su lugar en la letra, flotando un poco; la ola ondula de verdad
+    const tx = p.hx + Math.sin(t * 0.0012 + p.ph) * 1.2;
+    const ty = p.hy + (p.wave ? Math.sin(p.hx * 0.025 - t * 0.003) * 5 : Math.cos(t * 0.0012 + p.ph) * 1.2);
+    const dx = p.x - mouse.x, dy = p.y - mouse.y, d2 = dx * dx + dy * dy;
+    if (d2 < 14000) { const f = (1 - d2 / 14000) * 2.2 / Math.sqrt(d2 + 1); p.vx += dx * f; p.vy += dy * f; }
+    p.vx = (p.vx + (tx - p.x) * 0.018) * 0.9;
+    p.vy = (p.vy + (ty - p.y) * 0.018) * 0.9;
+    p.x += p.vx; p.y += p.vy;
+
+    // Brillo de marea que recorre las letras de izquierda a derecha
+    const shine = Math.max(0, Math.sin(p.hx * 0.008 - t * 0.0022)) ** 6;
+    ctx.globalAlpha = 0.75 + shine * 0.25;
+    ctx.fillStyle = shine > 0.5 ? '#E8FBF8' : p.col;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (1 + shine * 0.6), 0, 6.28); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(frame);
+}
+
+addEventListener('resize', build);
+addEventListener('pointermove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+addEventListener('pointerleave', () => { mouse.x = mouse.y = -1e4; });
+addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') mouse.x = mouse.y = -1e4; });
+addEventListener('pointerdown', scatter);
+build();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

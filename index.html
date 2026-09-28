@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Galaxia animada</title>
+<style>
+  html,body{margin:0;height:100%;background:#05060f;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+  h1{position:fixed;left:0;right:0;bottom:8vh;margin:0;text-align:center;color:#fff;
+     font:600 clamp(1.4rem,5vw,3rem) system-ui,sans-serif;letter-spacing:.3em;
+     opacity:0;animation:in 2.5s 1s forwards;pointer-events:none}
+  @keyframes in{to{opacity:.85;letter-spacing:.6em}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<h1>GALAXIA</h1>
+<script>
+const c = document.getElementById('c'), x = c.getContext('2d');
+const dpr = devicePixelRatio || 1, N = 1400, P = [];
+let W, H, mx = null, my = null;
+
+function resize() { W = c.width = innerWidth * dpr; H = c.height = innerHeight * dpr; }
+addEventListener('resize', resize);
+resize();
+addEventListener('pointermove', e => { mx = e.clientX * dpr; my = e.clientY * dpr; });
+addEventListener('pointerleave', () => { mx = my = null; });
+
+// Partículas repartidas en 3 brazos espirales; las cercanas al centro giran más rápido
+for (let i = 0; i < N; i++) {
+  const r = Math.random() ** 0.6;
+  P.push({ r, a: (i % 3) * 2.094 + r * 5 + (Math.random() - 0.5) * 0.6, s: 0.002 + (1 - r) * 0.01, z: Math.random() });
+}
+
+function frame(t) {
+  x.fillStyle = 'rgba(5,6,15,.18)'; // estela: borra parcialmente el cuadro anterior
+  x.fillRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.45;
+  x.globalCompositeOperation = 'lighter';
+
+  const g = x.createRadialGradient(cx, cy, 0, cx, cy, R * 0.3);
+  g.addColorStop(0, 'rgba(255,210,170,.06)');
+  g.addColorStop(1, 'rgba(255,210,170,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, W, H);
+
+  for (const p of P) {
+    p.a += p.s;
+    let px = cx + Math.cos(p.a) * p.r * R, py = cy + Math.sin(p.a) * p.r * R * 0.55;
+    if (mx !== null) { // el cursor atrae las estrellas cercanas
+      const dx = mx - px, dy = my - py, d = Math.hypot(dx, dy) + 1, f = Math.min(40 * dpr, 4000 * dpr / d);
+      px += dx / d * f; py += dy / d * f;
+    }
+    x.fillStyle = `hsla(${(200 + p.r * 140 + t * 0.02) % 360},90%,${55 + p.z * 25}%,${0.5 + p.z * 0.5})`;
+    const sz = (1 + p.z * 2) * dpr;
+    x.fillRect(px, py, sz, sz);
+  }
+  x.globalCompositeOperation = 'source-over';
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

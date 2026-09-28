@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fluido de colores</title>
+<style>
+  :root{--bg:#05060f;--fg:#fff}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#05060f;--fg:#fff}}
+  :root[data-theme="dark"]{--bg:#05060f;--fg:#fff}
+  html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+  p{position:fixed;left:0;right:0;bottom:6vh;margin:0;text-align:center;color:var(--fg);
+    font:500 clamp(.8rem,2.5vw,1.05rem) system-ui,sans-serif;letter-spacing:.2em;opacity:.7;
+    animation:out 1.5s 4s forwards;pointer-events:none}
+  @keyframes out{to{opacity:0}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<p>MUEVE EL CURSOR O ARRASTRA EL DEDO</p>
+<script>
+// Simulación de fluidos "Stable Fluids" (Jos Stam) en una rejilla pequeña que el navegador escala a pantalla
+const c = document.getElementById('c'), ctx = c.getContext('2d');
+const M = 160, asp = innerWidth / innerHeight;
+const NX = asp >= 1 ? M : Math.round(M * asp), NY = asp >= 1 ? Math.round(M / asp) : M;
+const W = NX + 2, S = W * (NY + 2), IX = (i, j) => i + W * j;
+const F = () => new Float32Array(S);
+const u = F(), v = F(), u0 = F(), v0 = F(), p = F(), dv = F(), crl = F(), tmp = F();
+const dye = [F(), F(), F()], BG = [5, 6, 15];
+c.width = NX; c.height = NY;
+const img = ctx.createImageData(NX, NY);
+
+// Color puro a partir de un tono (0-360)
+const hue = h => [0, 8, 4].map(n => { const k = (n + h / 30) % 12; return 0.5 - 0.5 * Math.max(-1, Math.min(k - 3, 9 - k, 1)); });
+
+// Paredes: la velocidad rebota, el resto se copia del vecino
+function bnd(b, x) {
+  for (let i = 1; i <= NX; i++) {
+    x[IX(i, 0)] = b === 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
+    x[IX(i, NY + 1)] = b === 2 ? -x[IX(i, NY)] : x[IX(i, NY)];
+  }
+  for (let j = 1; j <= NY; j++) {
+    x[IX(0, j)] = b === 1 ? -x[IX(1, j)] : x[IX(1, j)];
+    x[IX(NX + 1, j)] = b === 1 ? -x[IX(NX, j)] : x[IX(NX, j)];
+  }
+}
+
+// Mueve la cantidad d0 siguiendo la velocidad (uu, vv) hacia atrás en el tiempo
+function advect(b, d, d0, uu, vv) {
+  for (let j = 1; j <= NY; j++) for (let i = 1; i <= NX; i++) {
+    const k = IX(i, j);
+    const x = Math.min(Math.max(i - uu[k], 0.5), NX + 0.5), y = Math.min(Math.max(j - vv[k], 0.5), NY + 0.5);
+    const i0 = x | 0, j0 = y | 0, s = x - i0, t = y - j0, a = IX(i0, j0);
+    d[k] = (1 - s) * ((1 - t) * d0[a] + t * d0[a + W]) + s * ((1 - t) * d0[a + 1] + t * d0[a + W + 1]);
+  }
+  bnd(b, d);
+}
+
+// Hace el fluido incompresible: resuelve la presión y la resta de la velocidad
+function project() {
+  for (let j = 1; j <= NY; j++) for (let i = 1; i <= NX; i++) {
+    const k = IX(i, j);
+    dv[k] = -0.5 * (u[k + 1] - u[k - 1] + v[k + W] - v[k - W]);
+  }
+  bnd(0, dv);
+  for (let n = 0; n < 20; n++) {
+    for (let j = 1; j <= NY; j++) for (let i = 1; i <= NX; i++) {
+      const k = IX(i, j);
+      p[k] = (dv[k] + p[k - 1] + p[k + 1] + p[k - W] + p[k + W]) / 4;
+    }
+    bnd(0, p);
+  }
+  for (let j = 1; j <= NY; j++) for (let i = 1; i <= NX; i++) {
+    const k = IX(i, j);
+    u[k] -= 0.5 * (p[k + 1] - p[k - 1]);
+    v[k] -= 0.5 * (p[k + W] - p[k - W]);
+  }
+  bnd(1, u); bnd(2, v);
+}
+
+// Refuerza los remolinos pequeños que la simulación tiende a suavizar
+function vorticity(eps) {
+  for (let j = 1; j <= NY; j++) for (let i = 1; i <= NX; i++) {
+    const k = IX(i, j);
+    crl[k] = 0.5 * (v[k + 1] - v[k - 1] - u[k + W] + u[k - W]);
+  }
+  for (let j = 2; j < NY; j++) for (let i = 2; i < NX; i++) {
+    const k = IX(i, j);
+    const nx = Math.abs(crl[k + 1]) - Math.abs(crl[k - 1]), ny = Math.abs(crl[k + W]) - Math.abs(crl[k - W]);
+    const l = Math.hypot(nx, ny) + 1e-5;
+    u[k] += eps * ny / l * crl[k];
+    v[k] -= eps * nx / l * crl[k];
+  }
+}
+
+// Empuja el fluido y añade tinta alrededor de (x, y)
+function splat(x, y, fx, fy, col, r) {
+  const r2 = r * r;
+  for (let j = Math.max(1, y - r | 0); j <= Math.min(NY, y + r); j++)
+    for (let i = Math.max(1, x - r | 0); i <= Math.min(NX, x + r); i++) {
+      const d2 = (i - x) ** 2 + (j - y) ** 2;
+      if (d2 > r2) continue;
+      const f = Math.exp(-d2 / (r2 * 0.3)), k = IX(i, j);
+      u[k] += fx * f; v[k] += fy * f;
+      for (let n = 0; n < 3; n++) dye[n][k] += col[n] * f;
+    }
+}
+
+let last = null, hueT = 0;
+addEventListener('pointermove', e => {
+  const x = e.clientX / innerWidth * NX, y = e.clientY / innerHeight * NY;
+  if (last) splat(x, y, (x - last[0]) * 1.5, (y - last[1]) * 1.5, hue(hueT).map(q => q * 1), 5);
+  last = [x, y];
+});
+addEventListener('pointerup', () => { last = null; });
+addEventListener('pointerleave', () => { last = null; });
+
+function frame(t) {
+  hueT = t * 0.03;
+  // Dos chorros que giran para que se mueva solo aunque nadie lo toque
+  for (let e = 0; e < 2; e++) {
+    const a = t * 0.0005 + e * Math.PI, x = NX / 2 + Math.cos(a) * NX * 0.32, y = NY / 2 + Math.sin(a) * NY * 0.32;
+    splat(x, y, (-Math.cos(a) - Math.sin(a) * 0.6) * 0.5, (-Math.sin(a) + Math.cos(a) * 0.6) * 0.5,
+          hue(hueT + e * 180).map(q => q * 0.2), 5);
+  }
+  vorticity(0.25);
+  project();
+  u0.set(u); v0.set(v);
+  advect(1, u, u0, u0, v0);
+  advect(2, v, v0, u0, v0);
+  project();
+  for (const d of dye) { tmp.set(d); advect(0, d, tmp, u, v); }
+
+  const px = img.data;
+  for (let j = 1; j <= NY; j++) for (let i = 1; i <= NX; i++) {
+    const k = IX(i, j), o = ((j - 1) * NX + i - 1) * 4;
+    for (let n = 0; n < 3; n++) {
+      const d = dye[n][k] *= 0.996;
+      px[o + n] = BG[n] + (255 - BG[n]) * (1 - Math.exp(-d * 2));
+    }
+    px[o + 3] = 255;
+    u[k] *= 0.999; v[k] *= 0.999;
+  }
+  ctx.putImageData(img, 0, 0);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

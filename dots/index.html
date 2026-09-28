@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Puntos para SiMAR</title>
+<style>
+  :root{--is-dark:0;--bg:#E9E4D9;--fg:#0B2236;--muted:#4A5A6A;--dot:#1B5FC9;--accent:#20B2C4;
+        --btn:#fff;--btn-fg:#0B2236;--on:#1B5FC9;--on-fg:#fff;--border:#D6CEBD}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--is-dark:1;--bg:#0B2236;--fg:#fff;--muted:#C7D3DD;
+        --dot:#8CC3D1;--accent:#7FE0D6;--btn:#12304A;--btn-fg:#fff;--on:#7FE0D6;--on-fg:#0B2236;--border:rgba(255,255,255,.14)}}
+  :root[data-theme="dark"]{--is-dark:1;--bg:#0B2236;--fg:#fff;--muted:#C7D3DD;
+        --dot:#8CC3D1;--accent:#7FE0D6;--btn:#12304A;--btn-fg:#fff;--on:#7FE0D6;--on-fg:#0B2236;--border:rgba(255,255,255,.14)}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}
+  .bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 16px;
+       background:var(--bg);border-bottom:1px solid var(--border)}
+  .bar div{display:flex;flex-wrap:wrap;gap:8px;margin-right:auto}
+  button{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--border);background:var(--btn);
+         color:var(--btn-fg);font:600 16px system-ui,sans-serif;cursor:pointer}
+  button[aria-pressed="true"]{background:var(--on);color:var(--on-fg);border-color:var(--on)}
+  .hero{position:relative;min-height:calc(100vh - 69px);overflow:clip;display:flex;align-items:center}
+  canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .content{position:relative;width:100%;max-width:1200px;margin:0 auto;padding:48px 16px}
+  .content small{font-size:18px;font-weight:700;color:var(--dot)}
+  h1{margin:.2em 0 .1em;font-size:clamp(64px,12vw,104px);font-weight:800;letter-spacing:-.02em;line-height:1}
+  .content p{max-width:30ch;font-size:20px;line-height:1.5;color:var(--muted)}
+  .cap{display:none}
+  body[data-variant="cifras"] .hero{align-items:flex-start}
+  body[data-variant="cifras"] .content>*{display:none}
+  body[data-variant="cifras"] .content>.cap{display:block;max-width:none;text-align:center}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div id="variants" role="group" aria-label="Estilo de puntos"></div>
+  <button id="replay">Repetir</button>
+  <button id="theme">Claro / oscuro</button>
+</header>
+<section class="hero">
+  <canvas id="dots"></canvas>
+  <div class="content">
+    <small>Puerto Peñasco · Sonora · México</small>
+    <h1>SiMAR</h1>
+    <p>Así se vería el fondo de puntos detrás del hero de tu landing.</p>
+    <p class="cap">Cada punto = 10 kg de residuos recolectados (dato de ejemplo)</p>
+  </div>
+</section>
+<script type="module">
+import { startDots, VARIANTS } from './dots.js';
+const cv = document.getElementById('dots'), bar = document.getElementById('variants');
+const names = { batimetria: 'Batimetría', ola: 'Ola', rejilla: 'Rejilla', cifras: 'Cifras' };
+let variant = 'batimetria', stop = () => {};
+
+function run() {
+  stop();
+  stop = startDots(cv, { variant, color: '--dot', accent: '--accent', count: 640 });
+  document.body.dataset.variant = variant;
+  for (const b of bar.children) b.setAttribute('aria-pressed', b.dataset.v === variant);
+}
+for (const v of VARIANTS) {
+  const b = document.createElement('button');
+  b.textContent = names[v]; b.dataset.v = v;
+  b.onclick = () => { variant = v; run(); };
+  bar.append(b);
+}
+document.getElementById('replay').onclick = run;
+document.getElementById('theme').onclick = () => {
+  const r = document.documentElement, dark = getComputedStyle(r).getPropertyValue('--is-dark').trim() === '1';
+  r.dataset.theme = dark ? 'light' : 'dark';
+  run();
+};
+run();
+</script>
+</body>
+</html>
